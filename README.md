@@ -14,7 +14,7 @@ Please do not abuse it.
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/StealthChat.git
+git clone https://github.com/KfirMorad/StealthChat.git
 cd StealthChat
 ```
 
