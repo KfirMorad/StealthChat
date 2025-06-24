@@ -117,7 +117,7 @@ python gui.py
 
 ## Contributions
 
-We welcome pull requests, ideas, and improvements.
+I welcome pull requests, ideas, and improvements.
 If you'd like to contribute, please open an issue or submit a PR — especially for bug fixes, UI improvements, or feature suggestions.
 Let’s make StealthChat better together.
 
