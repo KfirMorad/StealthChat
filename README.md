@@ -1,5 +1,11 @@
 # StealthChat – Secure Anonymous chat
 
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square" />
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/status-active-brightgreen?style=flat-square" />
+</p>
+
 StealthChat is an encrypted messaging / images application that leverages Discord channels as a free, anonymous backend for hosting chat sessions securely. Messages are fully encrypted, temporary, and anonymous, ensuring complete privacy without additional hosting costs.
 
 ![Logo](https://i.ibb.co/nq49JnR8/stealthchat-gui-wide.png)
@@ -41,6 +47,12 @@ WEBHOOK_URL=      # Webhook used to send messages in active sessions tracking ch
 SESSIONS_CHANNEL_ID=  # Channel where active sessions are tracked
 IMGBB_API_KEY=    # API key for uploading images to ImgBB
 ```
+
+<p align="center">
+  <img src="assets/gui_showcase.gif" alt="StealthChat Matrix GUI Demo" />
+</p>
+
+<p align="center"><i>StealthChat GUI – encrypted Discord sessions with a matrix twist</i></p>
 
 ## Features
 
@@ -130,3 +142,7 @@ StealthChat is intended for **educational, ethical, and personal privacy purpose
 By using this application, you agree to comply with all relevant laws and regulations in your jurisdiction. Do not use StealthChat to engage in illegal, malicious, or unauthorized activities.
 
 > This tool does **not** guarantee absolute anonymity or protection against targeted surveillance.
+
+## License
+
+This project is licensed under the [MIT License](./LICENCE).
