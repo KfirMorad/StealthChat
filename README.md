@@ -47,12 +47,14 @@ WEBHOOK_URL=      # Webhook used to send messages in active sessions tracking ch
 SESSIONS_CHANNEL_ID=  # Channel where active sessions are tracked
 IMGBB_API_KEY=    # API key for uploading images to ImgBB
 ```
-
+---
 <p align="center">
   <img src="assets/gui_showcase.gif" alt="StealthChat Matrix GUI Demo" />
 </p>
 
 <p align="center"><i>StealthChat GUI – encrypted Discord sessions with a matrix twist</i></p>
+
+---
 
 ## Features
 
