@@ -52,7 +52,7 @@ IMGBB_API_KEY=    # API key for uploading images to ImgBB
   <img src="assets/gui_showcase.gif" alt="StealthChat Matrix GUI Demo" />
 </p>
 
-<p align="center"><i>StealthChat GUI – encrypted Discord sessions with a matrix twist</i></p>
+<p align="center"><i>StealthChat GUI – encrypted Discord sessions</i></p>
 
 ---
 
