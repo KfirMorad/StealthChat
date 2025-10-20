@@ -1,4 +1,4 @@
-# chat.py — StealthChat backend (final user-count model)
+# chat.py — StealthChat backend
 
 import os, asyncio, random, base64, aiohttp
 from datetime import datetime, timedelta, timezone
@@ -11,29 +11,25 @@ from dotenv import load_dotenv
 
 import crypter
 
-# ─── env ────────────────────────────────────────────────────────────────
 load_dotenv()
 BOT_TOKEN           = os.environ["BOT_TOKEN"]
-WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          # webhook that posts to SESSIONS_CHANNEL_ID
+WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          
 SESSIONS_CHANNEL_ID = int(os.environ["SESSIONS_CHANNEL_ID"])
 
-# ─── discord client ─────────────────────────────────────────────────────
 intents                 = discord.Intents.default()
 intents.guilds          = True
 intents.messages        = True
 intents.message_content = True
 bot                      = commands.Bot(command_prefix="!", intents=intents)
 
-# ─── runtime state ──────────────────────────────────────────────────────
-session_message_ids: Dict[str, int]              = {}  # SID → counter-message id
-session_channel_ids: Dict[str, int]              = {}  # SID → text-channel id
+session_message_ids: Dict[str, int]              = {}  # SID → counter message id
+session_channel_ids: Dict[str, int]              = {}  # SID → text channel id
 session_counts:      Dict[str, int]              = {}  # SID → cached live count
 session_last_seen:   Dict[str, datetime]         = {}  # SID → last payload time
 receive_handlers:    Dict[str, List[Callable[[str], None]]] = {}
 
 http_session: Optional[aiohttp.ClientSession] = None
 
-# ────────────────────────── helpers ─────────────────────────────────────
 async def _get_hook() -> Webhook:
     global http_session
     if http_session is None or http_session.closed:
@@ -56,14 +52,12 @@ async def _post_session_message(sid: str, count: int) -> int:
 async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     """Return the WebhookMessage object for <sid>|<n>, resyncing cache if needed."""
     hook = await _get_hook()
-    # fast path: cached id
     msg_id = session_message_ids.get(sid)
     if msg_id:
         try:
             return await hook.fetch_message(msg_id)
         except discord.NotFound:
             pass
-    # slow path: scan recent history once
     chan = bot.get_channel(SESSIONS_CHANNEL_ID) or await bot.fetch_channel(SESSIONS_CHANNEL_ID)
     if not isinstance(chan, discord.TextChannel):
         return None
@@ -101,7 +95,6 @@ async def _delete_session_message(sid: str) -> None:
         except discord.NotFound:
             pass
 
-# ───────────────────────── channel ops ──────────────────────────────────
 async def _create_session_channel(sid: str, guild: discord.Guild) -> int:
     ch = await guild.create_text_channel(sid)
     return ch.id
@@ -115,7 +108,6 @@ async def _delete_session_channel(sid: str) -> None:
             try: await ch.delete()
             except discord.NotFound: pass
 
-# ───────────────────────── lifecycle helpers ────────────────────────────
 async def _start_session(sid: str, guild: discord.Guild) -> None:
     ch_id = await _create_session_channel(sid, guild)
     session_channel_ids[sid] = ch_id
@@ -142,7 +134,6 @@ async def _update_count(sid: str, delta: int) -> None:
     await _edit_or_create_counter(sid, new_total)
     session_counts[sid] = new_total
 
-# ───────────────────────── API for GUI threads ──────────────────────────
 def start_auto_session_from_thread(guild_id: int) -> str:
     guild = bot.get_guild(guild_id); assert guild
     sid = _unique_sid(guild)
@@ -165,7 +156,6 @@ def unregister_receive_callback(sid: str, cb: Callable[[str], None]) -> None:
     handlers = receive_handlers.get(sid, [])
     if cb in handlers: handlers.remove(cb)
 
-# ───────────────────────── send helper ──────────────────────────────────
 async def _send_to_channel(sid: str, content: str) -> None:
     ch_id = session_channel_ids.get(sid);
     if not ch_id: return
@@ -174,7 +164,6 @@ async def _send_to_channel(sid: str, content: str) -> None:
     if isinstance(ch, discord.TextChannel):
         await ch.send(content)
 
-# ───────────────────────── boot-time sync ───────────────────────────────
 async def sync_active_sessions() -> None:
     chan = bot.get_channel(SESSIONS_CHANNEL_ID) or await bot.fetch_channel(SESSIONS_CHANNEL_ID)
     if not isinstance(chan, discord.TextChannel): return
@@ -195,7 +184,6 @@ async def sync_active_sessions() -> None:
             if isinstance(ch, discord.TextChannel):
                 session_channel_ids[sid] = ch.id
 
-# ───────────────────────── bot events & idle cleanup ────────────────────
 @bot.event
 async def on_ready():
     await sync_active_sessions()
