@@ -115,7 +115,7 @@ Used for:
 
 ---
 
-> 🔧 The bot will dynamically create and manage new channels and webhooks for each session.
+>  The bot will dynamically create and manage new channels and webhooks for each session.
 
 ## Run Locally
 
