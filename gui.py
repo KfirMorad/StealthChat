@@ -1,4 +1,3 @@
-# gui.py — StealthChat GUI for the user-count backend
 
 import os, threading, asyncio, base64, tkinter as tk
 from typing import Callable, Optional
@@ -19,13 +18,11 @@ from chat import (
     sync_active_sessions,
 )
 
-# ─── env / bot thread ───────────────────────────────────────────────────
 load_dotenv()
 IMGBB_API_KEY = os.environ["IMGBB_API_KEY"]
 BOT_TOKEN = os.environ["BOT_TOKEN"]; GUILD_ID = int(os.environ["GUILD_ID"])
 threading.Thread(target=lambda: bot.run(BOT_TOKEN), daemon=True).start()
 
-# ─── Tk basics ──────────────────────────────────────────────────────────
 root = tk.Tk(); root.title("StealthChat GUI")
 root.geometry("600x500"); root.configure(bg="#000"); root.resizable(False, False)
 FONT = ("Consolas", 12); TX_BG, TX_FG = "#000", "#0f0"
@@ -56,9 +53,8 @@ root.protocol("WM_DELETE_WINDOW", on_close)
 def upload_clipboard_image() -> Optional[str]:
     try:
         raw = ImageGrab.grabclipboard()
-        img: Optional[PIL.Image.Image] = None  # Explicit type hint
+        img: Optional[PIL.Image.Image] = None  
 
-        # Case 1: direct image object
         if isinstance(raw, PIL.Image.Image):
             img = raw
 
@@ -94,20 +90,18 @@ def upload_clipboard_image() -> Optional[str]:
         raw = ImageGrab.grabclipboard()
         img = None
 
-        # Case 1: direct image object
         if hasattr(raw, "save"):
             img = raw
 
-        # Case 2: list of file paths
         elif isinstance(raw, list) and len(raw) > 0:
             from PIL import Image
             try:
                 img = Image.open(raw[0])
             except Exception:
-                pass  # fail silently
+                pass  
 
         if img is None:
-            return None  # no image found
+            return None 
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -131,11 +125,9 @@ def upload_clipboard_image() -> Optional[str]:
     try:
         raw = ImageGrab.grabclipboard()
 
-        # Case 1: it's a direct image object (from screenshot tools, etc.)
         if hasattr(raw, "save"):
             img = raw
 
-        # Case 2: it's a file path list like ["C:/Users/Kfir/Desktop/pic.png"]
         elif isinstance(raw, list) and len(raw) > 0:
             try:
                 from PIL import Image
@@ -145,13 +137,11 @@ def upload_clipboard_image() -> Optional[str]:
         else:
             return None
 
-        # save to buffer
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
         b64 = base64.b64encode(buf.read()).decode()
 
-        # upload to imgbb
         resp = requests.post("https://api.imgbb.com/1/upload", data={
             "key": IMGBB_API_KEY,
             "image": b64,
@@ -167,16 +157,11 @@ def upload_clipboard_image() -> Optional[str]:
         return None
 
 
-# ───────────────────────── connect UI ───────────────────────────────────
 def show_connect_ui():
     clear_frame()
-    # Matrix effect behind everything
-    # 1. Create and send canvas to the background
     canvas = tk.Canvas(frame, bg=TX_BG, highlightthickness=0)
     canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-    canvas.lower("all")  # ensure all widgets appear above
-
-    # 2. Setup drops in left/right thirds
+    canvas.lower("all")  
     char_w = 10
     canvas_w, canvas_h = 600, 500
     num_cols = canvas_w // char_w
@@ -189,7 +174,6 @@ def show_connect_ui():
 
     matrix_chars = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    # 3. Enhanced movie-style effect
     def matrix_effect():
         if not canvas.winfo_exists():
             return
@@ -205,7 +189,7 @@ def show_connect_ui():
                 if ty > canvas_h or ty < 0:
                     continue
                 if i == 0:
-                    color = "#0f0"  # bright neon green head
+                    color = "#0f0"  
                 else:
                     fade = hex(max(0, 15 - i * 2))[2:].zfill(2)
                     color = f"#00{fade}00"  # fading tail
@@ -223,7 +207,6 @@ def show_connect_ui():
 
 
 
-    # ASCII logo appears ON TOP of matrix
     ascii_label = tk.Label(frame, fg=TX_FG, bg=TX_BG, font=("Consolas", 9), justify="left")
     ascii_label.pack(pady=(20, 10))
 
@@ -246,7 +229,6 @@ def show_connect_ui():
     """
     typewriter(ascii_art.strip("\n"))
 
-    # Optional ESC exit
     root.bind("<Escape>", lambda _: on_close())
 
 
@@ -292,7 +274,6 @@ def show_connect_ui():
               font=("Consolas", 14, "bold"),
               fg=TX_FG, bg="#222", bd=0, activebackground="#333").pack(pady=20)
 
-# ───────────────────────── chat UI ───────────────────────────────────────
 def show_chat_ui():
     clear_frame()
     assert current_session
@@ -327,7 +308,6 @@ def show_chat_ui():
             entry.config(state="disabled")
             send_btn.config(state="disabled")
 
-        # IMAGE branch
         elif "http" in msg and (msg.endswith(".png") or msg.endswith(".jpg") or ".ibb.co" in msg):
             sender, body = msg.split(":", 1)
             put(f"< [Image] {sender}: {body.strip()}")
@@ -336,25 +316,23 @@ def show_chat_ui():
                 from PIL import Image, ImageTk
                 import urllib.request
 
-                # download
+                
                 resp = urllib.request.urlopen(body.strip())
                 img_data = resp.read()
                 img = Image.open(io.BytesIO(img_data))
 
-                # cap size, preserve aspect ratio
                 max_w = 300
                 max_h = 300
                 img.thumbnail((max_w, max_h))
 
                 photo = ImageTk.PhotoImage(img)
 
-                # inject blank line + image + blank line
                 chat_box.config(state="normal")
-                chat_box.insert("end", "\n")                      # ensure on new line
+                chat_box.insert("end", "\n")                    
                 img_label = tk.Label(chat_box, image=photo, bg=TX_BG)
-                setattr(img_label, "image", photo)                # keep ref
+                setattr(img_label, "image", photo)               
                 chat_box.window_create("end", window=img_label)
-                chat_box.insert("end", "\n\n")                    # pad after
+                chat_box.insert("end", "\n\n")                   
                 chat_box.config(state="disabled")
                 chat_box.see("end")
 
@@ -411,5 +389,5 @@ def show_chat_ui():
     entry.focus_set()
 
 
-# ───────────────────────── start app ────────────────────────────────────
+# start app 
 show_connect_ui(); root.mainloop()
