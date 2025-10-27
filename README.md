@@ -10,7 +10,7 @@ StealthChat is an encrypted messaging / images application that leverages Discor
 
 ![Logo](https://i.ibb.co/nq49JnR8/stealthchat-gui-wide.png)
 
-## 🟢Executable Usage🟢
+## Executable Usage
 
 A compiled `.exe` version is available for Windows users. It includes full functionality and does **not** require Python to be installed. You still need to provide your own `.env` file with valid keys.
 Please do not abuse it.
@@ -67,7 +67,7 @@ IMGBB_API_KEY=    # API key for uploading images to ImgBB
 
 ## API Reference
 
-### 🟣 Discord API
+###  Discord API
 
 Used for:
 
@@ -80,7 +80,7 @@ Used for:
 
 ---
 
-### 🟡 ImgBB API
+###  ImgBB API
 
 Used for:
 
