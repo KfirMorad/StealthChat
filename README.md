@@ -1,10 +1,6 @@
 # StealthChat – Secure Anonymous chat
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
-  <img src="https://img.shields.io/badge/status-active-brightgreen?style=flat-square" />
-</p>
+
 
 StealthChat is an encrypted messaging / images application that leverages Discord channels as a free, anonymous backend for hosting chat sessions securely. Messages are fully encrypted, temporary, and anonymous, ensuring complete privacy without additional hosting costs.
 
