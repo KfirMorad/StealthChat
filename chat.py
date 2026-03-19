@@ -1,6 +1,6 @@
 # chat.py — StealthChat backend!!
 
-import os, asyncio, random, base64, aiohttp
+import os, asyncio, random, base64, aiohttp, re
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
@@ -12,9 +12,23 @@ from dotenv import load_dotenv
 import crypter
 
 load_dotenv()
-BOT_TOKEN           = os.environ["BOT_TOKEN"]
-WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          
-SESSIONS_CHANNEL_ID = int(os.environ["SESSIONS_CHANNEL_ID"])
+
+def _require_env(name: str) -> str:
+    val = os.environ.get(name)
+    if not val:
+        raise RuntimeError(f"Required environment variable '{name}' is not set.")
+    return val
+
+BOT_TOKEN           = _require_env("BOT_TOKEN")
+WEBHOOK_URL         = _require_env("WEBHOOK_URL")
+SESSIONS_CHANNEL_ID = int(_require_env("SESSIONS_CHANNEL_ID"))
+
+# Validate WEBHOOK_URL is a legitimate Discord webhook URL
+_WEBHOOK_URL_RE = re.compile(
+    r'^https://(?:(?:canary|ptb)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$'
+)
+if not _WEBHOOK_URL_RE.match(WEBHOOK_URL):
+    raise RuntimeError("WEBHOOK_URL does not appear to be a valid Discord webhook URL.")
 
 intents                 = discord.Intents.default()
 intents.guilds          = True
@@ -22,20 +36,35 @@ intents.messages        = True
 intents.message_content = True
 bot                      = commands.Bot(command_prefix="!", intents=intents)
 
-session_message_ids: Dict[str, int]              = {}  # SID → counter message id
-session_channel_ids: Dict[str, int]              = {}  # SID → text channel id
-session_counts:      Dict[str, int]              = {}  # SID → cached live count
-session_last_seen:   Dict[str, datetime]         = {}  # SID → last payload time
+session_message_ids: Dict[str, int]              = {}  # SID -> counter message id
+session_channel_ids: Dict[str, int]              = {}  # SID -> text channel id
+session_counts:      Dict[str, int]              = {}  # SID -> cached live count
+session_last_seen:   Dict[str, datetime]         = {}  # SID -> last payload time
 receive_handlers:    Dict[str, List[Callable[[str], None]]] = {}
 
 http_session: Optional[aiohttp.ClientSession] = None
+
+# SID must be exactly 6 decimal digits
+_SID_RE = re.compile(r'^\d{6}$')
+
+def _validate_sid(sid: str) -> str:
+    """Raise ValueError if sid is not a safe 6-digit session identifier."""
+    if not _SID_RE.match(sid):
+        raise ValueError(f"Invalid session ID: {sid!r}")
+    return sid
+
+def _sanitize_content(content: str) -> str:
+    """Strip control characters and limit length to prevent content injection."""
+    # Remove non-printable / control characters except common whitespace
+    sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+    # Limit message length to 1900 chars (Discord limit is 2000)
+    return sanitized[:1900]
 
 async def _get_hook() -> Webhook:
     global http_session
     if http_session is None or http_session.closed:
         http_session = aiohttp.ClientSession()
     return Webhook.from_url(WEBHOOK_URL, session=http_session)
-    #API KEY SQL INJECTION XSS
 
 def _unique_sid(guild: discord.Guild) -> str:
     existing = {c.name for c in guild.channels}
@@ -46,12 +75,15 @@ def _unique_sid(guild: discord.Guild) -> str:
 
 # ───────────────────────── counter-message ops ──────────────────────────
 async def _post_session_message(sid: str, count: int) -> int:
+    _validate_sid(sid)
     hook = await _get_hook()
-    msg  = await hook.send(content=f"{sid}|{count}", wait=True)
+    # Content is strictly "<6-digit-sid>|<integer>" — no user-controlled data
+    msg  = await hook.send(content=f"{sid}|{int(count)}", wait=True)
     return msg.id
 
 async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     """Return the WebhookMessage object for <sid>|<n>, resyncing cache if needed."""
+    _validate_sid(sid)
     hook = await _get_hook()
     msg_id = session_message_ids.get(sid)
     if msg_id:
@@ -62,8 +94,9 @@ async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     chan = bot.get_channel(SESSIONS_CHANNEL_ID) or await bot.fetch_channel(SESSIONS_CHANNEL_ID)
     if not isinstance(chan, discord.TextChannel):
         return None
+    prefix = f"{sid}|"
     async for m in chan.history(limit=100):
-        if m.webhook_id and m.content.startswith(f"{sid}|"):
+        if m.webhook_id and m.content.startswith(prefix):
             session_message_ids[sid] = m.id
             return m
     return None
@@ -79,11 +112,12 @@ async def _get_live_count(sid: str) -> Optional[int]:
         return None
 
 async def _edit_or_create_counter(sid: str, new_total: int) -> None:
+    _validate_sid(sid)
     hook = await _get_hook()
     msg  = await _locate_counter_message(sid)
     if msg:
         await hook.edit_message(message_id=msg.id,
-                                content=f"{sid}|{new_total}")
+                                content=f"{sid}|{int(new_total)}")
     else:
         session_message_ids[sid] = await _post_session_message(sid, new_total)
 
@@ -97,6 +131,7 @@ async def _delete_session_message(sid: str) -> None:
             pass
 
 async def _create_session_channel(sid: str, guild: discord.Guild) -> int:
+    _validate_sid(sid)
     ch = await guild.create_text_channel(sid)
     return ch.id
 
@@ -110,6 +145,7 @@ async def _delete_session_channel(sid: str) -> None:
             except discord.NotFound: pass
 
 async def _start_session(sid: str, guild: discord.Guild) -> None:
+    _validate_sid(sid)
     ch_id = await _create_session_channel(sid, guild)
     session_channel_ids[sid] = ch_id
     msg_id = await _post_session_message(sid, 1)
@@ -123,7 +159,7 @@ async def _update_count(sid: str, delta: int) -> None:
     if live is None:
         live = 0
     new_total = live + delta
-    print(f"[COUNT] {sid}: {live} → {new_total}")
+    print(f"[COUNT] {sid}: {live} -> {new_total}")
     if new_total <= 0:
         await _delete_session_channel(sid)
         await _delete_session_message(sid)
@@ -142,28 +178,35 @@ def start_auto_session_from_thread(guild_id: int) -> str:
     return sid
 
 def join_session_from_thread(sid: str) -> None:
+    _validate_sid(sid)
     asyncio.run_coroutine_threadsafe(_update_count(sid, +1), bot.loop).result()
 
 def leave_session_from_thread(sid: str) -> None:
+    _validate_sid(sid)
     asyncio.run_coroutine_threadsafe(_update_count(sid, -1), bot.loop).result()
 
 def send_session_message_from_thread(sid: str, content: str) -> None:
+    _validate_sid(sid)
     asyncio.run_coroutine_threadsafe(_send_to_channel(sid, content), bot.loop)
 
 def register_receive_callback(sid: str, cb: Callable[[str], None]) -> None:
+    _validate_sid(sid)
     receive_handlers.setdefault(sid, []).append(cb)
 
 def unregister_receive_callback(sid: str, cb: Callable[[str], None]) -> None:
+    _validate_sid(sid)
     handlers = receive_handlers.get(sid, [])
     if cb in handlers: handlers.remove(cb)
 
 async def _send_to_channel(sid: str, content: str) -> None:
-    ch_id = session_channel_ids.get(sid);
+    _validate_sid(sid)
+    ch_id = session_channel_ids.get(sid)
     if not ch_id: return
     guild = bot.guilds[0]
     ch = guild.get_channel(ch_id)
     if isinstance(ch, discord.TextChannel):
-        await ch.send(content)
+        safe_content = _sanitize_content(content)
+        await ch.send(safe_content)
 
 async def sync_active_sessions() -> None:
     chan = bot.get_channel(SESSIONS_CHANNEL_ID) or await bot.fetch_channel(SESSIONS_CHANNEL_ID)
@@ -172,8 +215,12 @@ async def sync_active_sessions() -> None:
     session_counts.clear();      session_last_seen.clear()
     async for msg in chan.history(limit=None):
         if not msg.webhook_id: continue
-        try: sid, n = msg.content.strip().split("|", 1); n = int(n)
-        except ValueError: continue
+        try:
+            sid, n = msg.content.strip().split("|", 1)
+            _validate_sid(sid)
+            n = int(n)
+        except (ValueError, Exception):
+            continue
         session_message_ids[sid] = msg.id
         session_counts[sid]      = n
         session_last_seen[sid]   = datetime.now(timezone.utc)
@@ -206,7 +253,8 @@ async def on_message(msg: discord.Message):
             plain = crypter.decrypt_message(raw, pwd)
         except Exception: continue
         session_last_seen[sid] = datetime.now(timezone.utc)
-        for cb in receive_handlers.get(sid, []): cb(plain)
+        safe_plain = _sanitize_content(plain)
+        for cb in receive_handlers.get(sid, []): cb(safe_plain)
 
 @tasks.loop(minutes=5)
 async def cleanup():
