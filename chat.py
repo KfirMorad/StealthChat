@@ -13,7 +13,7 @@ import crypter
 
 load_dotenv()
 BOT_TOKEN           = os.environ["BOT_TOKEN"]
-WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          
+WEBHOOK_URL         = os.environ["WEBHOOK_URL"]
 SESSIONS_CHANNEL_ID = int(os.environ["SESSIONS_CHANNEL_ID"])
 
 intents                 = discord.Intents.default()
@@ -43,19 +43,22 @@ def _unique_sid(guild: discord.Guild) -> str:
         if sid not in existing and sid not in session_channel_ids:
             return sid
 
-# ───────────────────────── counter-message ops ──────────────────────────
+def _validate_sid(sid: str) -> bool:
+    """Validate that a SID is exactly 6 decimal digits (safe for use in content matching)."""
+    return sid.isdigit() and len(sid) == 6
+
+# ───────────────────────── counter-message ops ──────────────────────
 async def _post_session_message(sid: str, count: int) -> int:
+    if not _validate_sid(sid):
+        raise ValueError(f"Invalid SID: {sid!r}")
     hook = await _get_hook()
     msg  = await hook.send(content=f"{sid}|{count}", wait=True)
     return msg.id
 
-async def _post_session_message(sid: str, count: int) -> int:
-    hook = await _get_hook()
-    msg  = await hook.send(content=f"{sid}|{count}", wait=True)
-    return msg.id
-    #API KEY SQL INJECTION XSS
 async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     """Return the WebhookMessage object for <sid>|<n>, resyncing cache if needed."""
+    if not _validate_sid(sid):
+        raise ValueError(f"Invalid SID: {sid!r}")
     hook = await _get_hook()
     msg_id = session_message_ids.get(sid)
     if msg_id:
@@ -66,10 +69,14 @@ async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     chan = bot.get_channel(SESSIONS_CHANNEL_ID) or await bot.fetch_channel(SESSIONS_CHANNEL_ID)
     if not isinstance(chan, discord.TextChannel):
         return None
+    prefix = f"{sid}|"
     async for m in chan.history(limit=100):
-        if m.webhook_id and m.content.startswith(f"{sid}|"):
-            session_message_ids[sid] = m.id
-            return m
+        if m.webhook_id and m.content.startswith(prefix):
+            # Extra validation: ensure the part after | is a valid integer
+            parts = m.content.strip().split("|", 1)
+            if len(parts) == 2 and parts[1].lstrip("-").isdigit():
+                session_message_ids[sid] = m.id
+                return m
     return None
 
 async def _get_live_count(sid: str) -> Optional[int]:
@@ -162,8 +169,17 @@ def unregister_receive_callback(sid: str, cb: Callable[[str], None]) -> None:
     if cb in handlers: handlers.remove(cb)
 
 async def _send_to_channel(sid: str, content: str) -> None:
-    ch_id = session_channel_ids.get(sid);
+    """Send an already-encrypted (base64) payload to the session channel.
+    Content is validated to be safe base64 before sending to prevent injection."""
+    if not _validate_sid(sid):
+        return
+    ch_id = session_channel_ids.get(sid)
     if not ch_id: return
+    # Validate content is safe base64url to prevent XSS / injection via Discord
+    try:
+        base64.urlsafe_b64decode(content.encode())
+    except Exception:
+        return
     guild = bot.guilds[0]
     ch = guild.get_channel(ch_id)
     if isinstance(ch, discord.TextChannel):
@@ -176,8 +192,13 @@ async def sync_active_sessions() -> None:
     session_counts.clear();      session_last_seen.clear()
     async for msg in chan.history(limit=None):
         if not msg.webhook_id: continue
-        try: sid, n = msg.content.strip().split("|", 1); n = int(n)
-        except ValueError: continue
+        try:
+            sid, n = msg.content.strip().split("|", 1)
+            n = int(n)
+        except ValueError:
+            continue
+        if not _validate_sid(sid):
+            continue
         session_message_ids[sid] = msg.id
         session_counts[sid]      = n
         session_last_seen[sid]   = datetime.now(timezone.utc)
