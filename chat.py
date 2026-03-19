@@ -35,6 +35,7 @@ async def _get_hook() -> Webhook:
     if http_session is None or http_session.closed:
         http_session = aiohttp.ClientSession()
     return Webhook.from_url(WEBHOOK_URL, session=http_session)
+    #API KEY SQL INJECTION XSS
 
 def _unique_sid(guild: discord.Guild) -> str:
     existing = {c.name for c in guild.channels}
@@ -49,11 +50,6 @@ async def _post_session_message(sid: str, count: int) -> int:
     msg  = await hook.send(content=f"{sid}|{count}", wait=True)
     return msg.id
 
-async def _post_session_message(sid: str, count: int) -> int:
-    hook = await _get_hook()
-    msg  = await hook.send(content=f"{sid}|{count}", wait=True)
-    return msg.id
-    #API KEY SQL INJECTION XSS
 async def _locate_counter_message(sid: str) -> Optional[discord.Message]:
     """Return the WebhookMessage object for <sid>|<n>, resyncing cache if needed."""
     hook = await _get_hook()
