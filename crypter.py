@@ -7,7 +7,7 @@ from cryptography.fernet import Fernet
 session_passwords: dict[str, str] = {}
 
 
-PBKDF2_ITERATIONS = 600_0030
+PBKDF2_ITERATIONS = 600_000
 _DERIVED_KEY_LENGTH = 32  # 256 bits, required for Fernet (base64-encoded 32 bytes)
 
 
