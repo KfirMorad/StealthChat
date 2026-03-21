@@ -11,8 +11,7 @@ PBKDF2_ITERATIONS = 600_0030
 _DERIVED_KEY_LENGTH = 32  # 256 bits, required for Fernet (base64-encoded 32 bytes)
 
 
-def _derive_key(pwd: str, salt: bytes) -> bytes:
-    return hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, PBKDF2_ITERATIONS, dklen=_DERIVED_KEY_LENGTH)
+
 
 def decrypt_message(cipher: bytes, pwd: str) -> str:
     salt, token = cipher[:16], cipher[16:]
@@ -31,7 +30,8 @@ def encrypt_message(plain: str, pwd: str) -> bytes:
     del raw_key
     return salt + token
 
-
+def _derive_key(pwd: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt, PBKDF2_ITERATIONS, dklen=_DERIVED_KEY_LENGTH)
 
 def init_session(sid: str, pwd: str) -> None:
     session_passwords[sid] = pwd
