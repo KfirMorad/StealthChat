@@ -16,6 +16,8 @@ BOT_TOKEN           = os.environ["BOT_TOKEN"]
 WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          
 SESSIONS_CHANNEL_ID = int(os.environ["SESSIONS_CHANNEL_ID"])
 
+SYNC_HISTORY_LIMIT = 500  # cap history scan to prevent resource exhaustion
+
 intents                 = discord.Intents.default()
 intents.guilds          = True
 intents.messages        = True
@@ -35,7 +37,6 @@ async def _get_hook() -> Webhook:
     if http_session is None or http_session.closed:
         http_session = aiohttp.ClientSession()
     return Webhook.from_url(WEBHOOK_URL, session=http_session)
-    #API KEY SQL INJECTION XSS
 
 def _unique_sid(guild: discord.Guild) -> str:
     existing = {c.name for c in guild.channels}
@@ -87,7 +88,6 @@ async def _edit_or_create_counter(sid: str, new_total: int) -> None:
     else:
         session_message_ids[sid] = await _post_session_message(sid, new_total)
 
-#testing
 async def _create_session_channel(sid: str, guild: discord.Guild) -> int:
     ch = await guild.create_text_channel(sid)
     return ch.id
@@ -100,21 +100,8 @@ async def _delete_session_message(sid: str) -> None:
             await hook.delete_message(msg_id)
         except discord.NotFound:
             pass
-            
 
-    
-
-
-
-async def _start_session(sid: str, guild: discord.Guild) -> None:
-    ch_id = await _create_session_channel(sid, guild)
-    session_channel_ids[sid] = ch_id
-    msg_id = await _post_session_message(sid, 1)
-    session_message_ids[sid] = msg_id
-    session_counts[sid]      = 1
-    session_last_seen[sid]   = datetime.now(timezone.utc)
-    
-    async def _delete_session_channel(sid: str) -> None:
+async def _delete_session_channel(sid: str) -> None:
     ch_id = session_channel_ids.pop(sid, None)
     if ch_id:
         guild = bot.guilds[0]
@@ -123,6 +110,13 @@ async def _start_session(sid: str, guild: discord.Guild) -> None:
             try: await ch.delete()
             except discord.NotFound: pass
 
+async def _start_session(sid: str, guild: discord.Guild) -> None:
+    ch_id = await _create_session_channel(sid, guild)
+    session_channel_ids[sid] = ch_id
+    msg_id = await _post_session_message(sid, 1)
+    session_message_ids[sid] = msg_id
+    session_counts[sid]      = 1
+    session_last_seen[sid]   = datetime.now(timezone.utc)
 
 async def _update_count(sid: str, delta: int) -> None:
     """Add +1 or -1 to live count; delete channel & message when hits 0."""
@@ -177,7 +171,7 @@ async def sync_active_sessions() -> None:
     if not isinstance(chan, discord.TextChannel): return
     session_message_ids.clear(); session_channel_ids.clear()
     session_counts.clear();      session_last_seen.clear()
-    async for msg in chan.history(limit=None):
+    async for msg in chan.history(limit=SYNC_HISTORY_LIMIT):
         if not msg.webhook_id: continue
         try: sid, n = msg.content.strip().split("|", 1); n = int(n)
         except ValueError: continue
