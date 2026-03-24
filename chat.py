@@ -88,6 +88,9 @@ async def _edit_or_create_counter(sid: str, new_total: int) -> None:
         session_message_ids[sid] = await _post_session_message(sid, new_total)
 
 #testing
+async def _create_session_channel(sid: str, guild: discord.Guild) -> int:
+    ch = await guild.create_text_channel(sid)
+    return ch.id
 
 async def _delete_session_message(sid: str) -> None:
     hook = await _get_hook()
@@ -98,9 +101,7 @@ async def _delete_session_message(sid: str) -> None:
         except discord.NotFound:
             pass
             
-async def _create_session_channel(sid: str, guild: discord.Guild) -> int:
-    ch = await guild.create_text_channel(sid)
-    return ch.id
+
     
 
 
