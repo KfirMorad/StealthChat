@@ -8,6 +8,7 @@ import io
 import requests
 import time
 import random
+import urllib.parse
 
 import crypter
 from chat import (
@@ -35,11 +36,49 @@ frame = tk.Frame(root, bg=TX_BG); frame.pack(fill="both", expand=True)
 
 def clear_frame(): [c.destroy() for c in frame.winfo_children()]
 
+# Allowed image host for SSRF prevention
+ALLOWED_IMAGE_HOST = "i.ibb.co"
+
+
+def sanitize_display(text: str) -> str:
+    """Strip control characters and limit length for safe display."""
+    sanitized = "".join(c for c in text if c.isprintable() or c in (" ", "\t"))
+    return sanitized[:2000]
+
+
+def is_safe_image_url(url: str) -> bool:
+    """Validate that an image URL points to the expected trusted host."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return (
+            parsed.scheme in ("https",)
+            and parsed.netloc == ALLOWED_IMAGE_HOST
+        )
+    except Exception:
+        return False
+
+
+def build_payload(name: str, text: str) -> str:
+    """Build a message payload, escaping colons in the username."""
+    safe_name = name.replace(":", "\\:")
+    return f"{safe_name}:{text}"
+
+
+def split_payload(payload: str):
+    """Split a payload into (sender, body), respecting escaped colons in sender."""
+    parts = payload.split(":", 1)
+    if len(parts) == 2:
+        sender = parts[0].replace("\\:", ":")
+        body = parts[1]
+        return sender, body
+    return payload, ""
+
+
 def on_close():
     if current_session and _my_receive_cb:
         pwd = crypter.session_passwords.get(current_session)
         if pwd:
-            payload = f"System:{user_name} has left the session"
+            payload = build_payload("System", f"{user_name} has left the session")
             enc     = crypter.encrypt_message(payload, pwd)
             send_session_message_from_thread(
                 current_session, base64.urlsafe_b64encode(enc).decode())
@@ -53,12 +92,10 @@ root.protocol("WM_DELETE_WINDOW", on_close)
 def upload_clipboard_image() -> Optional[str]:
     try:
         raw = ImageGrab.grabclipboard()
-        img: Optional[PIL.Image.Image] = None  
+        img: Optional[PIL.Image.Image] = None
 
         if isinstance(raw, PIL.Image.Image):
             img = raw
-
-        # Case 2: file list
         elif isinstance(raw, list) and len(raw) > 0:
             try:
                 img = Image.open(raw[0])
@@ -73,87 +110,28 @@ def upload_clipboard_image() -> Optional[str]:
         buf.seek(0)
         b64 = base64.b64encode(buf.read()).decode()
 
-        resp = requests.post("https://api.imgbb.com/1/upload", data={
-            "key": IMGBB_API_KEY,
-            "image": b64,
-            "expiration": 600
-        })
+        resp = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={
+                "key": IMGBB_API_KEY,
+                "image": b64,
+                "expiration": 600
+            },
+            timeout=15
+        )
 
         if resp.status_code == 200:
-            return resp.json()["data"]["url"]
+            url = resp.json()["data"]["url"]
+            # Validate the returned URL before using it
+            if is_safe_image_url(url):
+                return url
+            else:
+                print(f"[upload_clipboard_image] Untrusted URL returned: {url}")
+                return None
         return None
 
     except Exception as e:
         print(f"[upload_clipboard_image] error: {e}")
-        return None
-    try:
-        raw = ImageGrab.grabclipboard()
-        img = None
-
-        if hasattr(raw, "save"):
-            img = raw
-
-        elif isinstance(raw, list) and len(raw) > 0:
-            from PIL import Image
-            try:
-                img = Image.open(raw[0])
-            except Exception:
-                pass  
-
-        if img is None:
-            return None 
-
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        b64 = base64.b64encode(buf.read()).decode()
-
-        resp = requests.post("https://api.imgbb.com/1/upload", data={
-            "key": IMGBB_API_KEY,
-            "image": b64,
-            "expiration": 600
-        })
-
-        if resp.status_code == 200:
-            return resp.json()["data"]["url"]
-        return None
-
-    except Exception as e:
-        print(f"[ERROR] upload_clipboard_image(): {e}")
-        return None
-
-    try:
-        raw = ImageGrab.grabclipboard()
-
-        if hasattr(raw, "save"):
-            img = raw
-
-        elif isinstance(raw, list) and len(raw) > 0:
-            try:
-                from PIL import Image
-                img = Image.open(raw[0])
-            except Exception:
-                return None
-        else:
-            return None
-
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        b64 = base64.b64encode(buf.read()).decode()
-
-        resp = requests.post("https://api.imgbb.com/1/upload", data={
-            "key": IMGBB_API_KEY,
-            "image": b64,
-            "expiration": 600  # delete after 10 minutes
-        })
-
-        if resp.status_code == 200:
-            return resp.json()["data"]["url"]
-        return None
-
-    except Exception as e:
-        print(f"[ERROR] upload_clipboard_image(): {e}")
         return None
 
 
@@ -161,7 +139,7 @@ def show_connect_ui():
     clear_frame()
     canvas = tk.Canvas(frame, bg=TX_BG, highlightthickness=0)
     canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-    canvas.lower("all")  
+    canvas.lower("all")
     char_w = 10
     canvas_w, canvas_h = 600, 500
     num_cols = canvas_w // char_w
@@ -189,10 +167,10 @@ def show_connect_ui():
                 if ty > canvas_h or ty < 0:
                     continue
                 if i == 0:
-                    color = "#0f0"  
+                    color = "#0f0"
                 else:
                     fade = hex(max(0, 15 - i * 2))[2:].zfill(2)
-                    color = f"#00{fade}00"  # fading tail
+                    color = f"#00{fade}00"
                 canvas.create_text(tx, ty, text=tch, fill=color, font=("Consolas", 8), tags="matrix")
 
             drop["y"] += 15
@@ -203,9 +181,6 @@ def show_connect_ui():
         frame.after(75, matrix_effect)
 
     matrix_effect()
-
-
-
 
     ascii_label = tk.Label(frame, fg=TX_FG, bg=TX_BG, font=("Consolas", 9), justify="left")
     ascii_label.pack(pady=(20, 10))
@@ -231,7 +206,6 @@ def show_connect_ui():
 
     root.bind("<Escape>", lambda _: on_close())
 
-
     name_v, room_v, pwd_v = tk.StringVar(), tk.StringVar(), tk.StringVar()
 
     def add_row(label, var, hide=False):
@@ -250,6 +224,9 @@ def show_connect_ui():
         name, sid, pwd = name_v.get().strip(), room_v.get().strip(), pwd_v.get().strip()
         if not name: err_lbl.config(text="Enter display name"); return
         if not pwd:  err_lbl.config(text="Enter password");     return
+        # Validate name does not contain structural characters that break parsing
+        if len(name) > 64:
+            err_lbl.config(text="Display name too long (max 64 chars)"); return
         try: asyncio.run_coroutine_threadsafe(sync_active_sessions(), bot.loop).result(5)
         except Exception: pass
         if sid and sid not in session_counts:
@@ -265,7 +242,7 @@ def show_connect_ui():
 
         current_session = sid; user_name = name
 
-        payload = f"System:{name} has joined the session"
+        payload = build_payload("System", f"{name} has joined the session")
         enc = crypter.encrypt_message(payload, pwd)
         send_session_message_from_thread(sid, base64.urlsafe_b64encode(enc).decode())
         show_chat_ui()
@@ -283,67 +260,80 @@ def show_chat_ui():
     chat_box.pack(fill="both", expand=True, padx=5, pady=5)
 
     def put(line: str, expire_after: int = 600):
+        safe_line = sanitize_display(line)
         chat_box.config(state="normal")
-        tag = f"msg_{time.time()}"  # unique tag per line
-        chat_box.insert("end", line + "\n", tag)
+        tag = f"msg_{time.time()}_{random.randint(0, 999999)}"
+        chat_box.insert("end", safe_line + "\n", tag)
         chat_box.config(state="disabled")
         chat_box.see("end")
 
         def clear():
             chat_box.config(state="normal")
-            chat_box.delete(f"{tag}.first", f"{tag}.last +1l")
+            try:
+                chat_box.delete(f"{tag}.first", f"{tag}.last +1l")
+            except Exception:
+                pass
             chat_box.config(state="disabled")
 
         chat_box.after(expire_after * 1000, clear)
 
-
     put(f"--- Session {sid} ---")
 
     def _recv(msg: str):
+        # Only treat as System message if it was decrypted with the correct key
+        # and the sender field is literally "System" (enforced by split_payload)
         if msg.startswith("System:"):
-            put(f"*** {msg.split(':', 1)[1]} ***")
+            _, body = split_payload(msg)
+            put(f"*** {sanitize_display(body)} ***")
 
         elif msg.startswith("Client disconnected"):
-            put(f"*** {msg} ***")
+            put(f"*** {sanitize_display(msg)} ***")
             entry.config(state="disabled")
             send_btn.config(state="disabled")
 
-        elif "http" in msg and (msg.endswith(".png") or msg.endswith(".jpg") or ".ibb.co" in msg):
-            sender, body = msg.split(":", 1)
-            put(f"< [Image] {sender}: {body.strip()}")
-
-            try:
-                from PIL import Image, ImageTk
-                import urllib.request
-
-                
-                resp = urllib.request.urlopen(body.strip())
-                img_data = resp.read()
-                img = Image.open(io.BytesIO(img_data))
-
-                max_w = 300
-                max_h = 300
-                img.thumbnail((max_w, max_h))
-
-                photo = ImageTk.PhotoImage(img)
-
-                chat_box.config(state="normal")
-                chat_box.insert("end", "\n")                    
-                img_label = tk.Label(chat_box, image=photo, bg=TX_BG)
-                setattr(img_label, "image", photo)               
-                chat_box.window_create("end", window=img_label)
-                chat_box.insert("end", "\n\n")                   
-                chat_box.config(state="disabled")
-                chat_box.see("end")
-
-            except Exception as e:
-                put(f"[Error displaying image: {e}]")
-
-
         else:
-            sender, body = msg.split(":", 1)
-            if sender != user_name:
-                put(f"< [{sender}] {body}")
+            sender, body = split_payload(msg)
+            sender = sanitize_display(sender)
+            body = sanitize_display(body)
+            body_stripped = body.strip()
+
+            # Check if body is a safe image URL (case-sensitive, validated host)
+            if is_safe_image_url(body_stripped):
+                put(f"< [Image] {sender}: {body_stripped}")
+
+                try:
+                    from PIL import ImageTk
+                    import urllib.request
+
+                    req = urllib.request.Request(
+                        body_stripped,
+                        headers={"User-Agent": "StealthChat/1.0"}
+                    )
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    img_data = resp.read()
+                    img = Image.open(io.BytesIO(img_data))
+
+                    max_w = 300
+                    max_h = 300
+                    img.thumbnail((max_w, max_h))
+
+                    photo = ImageTk.PhotoImage(img)
+
+                    chat_box.config(state="normal")
+                    chat_box.insert("end", "\n")
+                    img_label = tk.Label(chat_box, image=photo, bg=TX_BG)
+                    setattr(img_label, "image", photo)
+                    chat_box.window_create("end", window=img_label)
+                    chat_box.insert("end", "\n\n")
+                    chat_box.config(state="disabled")
+                    chat_box.see("end")
+
+                except Exception as e:
+                    put(f"[Error displaying image: {sanitize_display(str(e))}]")
+
+            else:
+                if sender != user_name:
+                    put(f"< [{sender}] {body}")
 
     register_receive_callback(sid, _recv)
     global _my_receive_cb
@@ -363,8 +353,8 @@ def show_chat_ui():
         if not txt:
             return
         entry.delete(0, "end")
-        put(f"> {txt}")
-        payload = f"{user_name}:{txt}"
+        put(f"> {sanitize_display(txt)}")
+        payload = build_payload(user_name, txt)
         pwd = crypter.session_passwords[sid]
         enc = crypter.encrypt_message(payload, pwd)
         send_session_message_from_thread(
@@ -375,19 +365,18 @@ def show_chat_ui():
         url = upload_clipboard_image()
         if url:
             put("> [image pasted]")
-            payload = f"{user_name}:{url}"
-            pwd     = crypter.session_passwords[sid]
-            enc     = crypter.encrypt_message(payload, pwd)
-            send_session_message_from_thread(
-                sid, base64.urlsafe_b64encode(enc).decode()
-            )
+            payload = build_payload(user_name, url)
+            pwd = crypter.session_passwords.get(sid)
+            if pwd:
+                enc = crypter.encrypt_message(payload, pwd)
+                send_session_message_from_thread(
+                    sid, base64.urlsafe_b64encode(enc).decode()
+                )
 
-
-    send_btn.config(command=_send)
     entry.bind("<Return>", _send)
-    root.bind("<Control-v>", on_paste)
-    entry.focus_set()
+    entry.bind("<Control-v>", on_paste)
+    send_btn.config(command=_send)
 
 
-# start app 
-show_connect_ui(); root.mainloop()
+show_connect_ui()
+root.mainloop()
