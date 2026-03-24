@@ -374,7 +374,7 @@ def show_chat_ui():
     def on_paste(_evt=None):
         url = upload_clipboard_image()
         if url:
-            put("> [Image pasted]")
+            put("> [image pasted]")
             payload = f"{user_name}:{url}"
             pwd     = crypter.session_passwords[sid]
             enc     = crypter.encrypt_message(payload, pwd)
