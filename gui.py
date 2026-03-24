@@ -272,7 +272,7 @@ def show_connect_ui():
 
     tk.Button(frame, text="Connect", command=connect,
               font=("Consolas", 14, "bold"),
-              fg=TX_FG, bg="#222", bd=0, activebackground="#333").pack(pady=20)
+              fg=TX_FG, bg="#221", bd=0, activebackground="#333").pack(pady=20)
 
 def show_chat_ui():
     clear_frame()
