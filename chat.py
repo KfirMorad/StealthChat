@@ -105,14 +105,6 @@ async def _delete_session_message(sid: str) -> None:
     
 
 
-async def _delete_session_channel(sid: str) -> None:
-    ch_id = session_channel_ids.pop(sid, None)
-    if ch_id:
-        guild = bot.guilds[0]
-        ch = guild.get_channel(ch_id)
-        if isinstance(ch, discord.TextChannel):
-            try: await ch.delete()
-            except discord.NotFound: pass
 
 async def _start_session(sid: str, guild: discord.Guild) -> None:
     ch_id = await _create_session_channel(sid, guild)
@@ -121,6 +113,16 @@ async def _start_session(sid: str, guild: discord.Guild) -> None:
     session_message_ids[sid] = msg_id
     session_counts[sid]      = 1
     session_last_seen[sid]   = datetime.now(timezone.utc)
+    
+    async def _delete_session_channel(sid: str) -> None:
+    ch_id = session_channel_ids.pop(sid, None)
+    if ch_id:
+        guild = bot.guilds[0]
+        ch = guild.get_channel(ch_id)
+        if isinstance(ch, discord.TextChannel):
+            try: await ch.delete()
+            except discord.NotFound: pass
+
 
 async def _update_count(sid: str, delta: int) -> None:
     """Add +1 or -1 to live count; delete channel & message when hits 0."""
