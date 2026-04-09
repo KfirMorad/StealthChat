@@ -1,6 +1,6 @@
 # chat.py — StealthChat backend
 
-import os, asyncio, random, base64, aiohttp
+import os, asyncio, random, secrets, base64, aiohttp, logging
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
@@ -13,8 +13,12 @@ import crypter
 
 load_dotenv()
 BOT_TOKEN           = os.environ["BOT_TOKEN"]
-WEBHOOK_URL         = os.environ["WEBHOOK_URL"]          
+WEBHOOK_URL         = os.environ["WEBHOOK_URL"]
 SESSIONS_CHANNEL_ID = int(os.environ["SESSIONS_CHANNEL_ID"])
+
+# Use structured logging instead of print to avoid leaking SIDs in plain stdout
+logger = logging.getLogger("stealthchat")
+logging.basicConfig(level=logging.INFO)
 
 intents                 = discord.Intents.default()
 intents.guilds          = True
@@ -30,18 +34,32 @@ receive_handlers:    Dict[str, List[Callable[[str], None]]] = {}
 
 http_session: Optional[aiohttp.ClientSession] = None
 
+# Allowlist: only HTTPS webhook URLs pointing to discord.com
+_ALLOWED_WEBHOOK_PREFIXES = ("https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/")
+
+def _validate_webhook_url(url: str) -> str:
+    """Validate that the webhook URL is a known Discord endpoint to prevent SSRF."""
+    if not any(url.startswith(prefix) for prefix in _ALLOWED_WEBHOOK_PREFIXES):
+        raise ValueError(f"WEBHOOK_URL does not point to a trusted Discord endpoint: {url!r}")
+    return url
+
+_VALIDATED_WEBHOOK_URL = _validate_webhook_url(WEBHOOK_URL)
+
 async def _get_hook() -> Webhook:
     global http_session
     if http_session is None or http_session.closed:
         http_session = aiohttp.ClientSession()
-    return Webhook.from_url(WEBHOOK_URL, session=http_session)
+    return Webhook.from_url(_VALIDATED_WEBHOOK_URL, session=http_session)
 
 def _unique_sid(guild: discord.Guild) -> str:
+    """Generate a cryptographically random 6-digit session ID."""
     existing = {c.name for c in guild.channels}
-    while True:
-        sid = f"{random.randint(0, 999_999):06d}"
+    for _ in range(1000):
+        # Use secrets.randbelow for cryptographic randomness
+        sid = f"{secrets.randbelow(1_000_000):06d}"
         if sid not in existing and sid not in session_channel_ids:
             return sid
+    raise RuntimeError("Unable to allocate a unique session ID")
 
 # ───────────────────────── counter-message ops ──────────────────────────
 async def _post_session_message(sid: str, count: int) -> int:
@@ -122,7 +140,8 @@ async def _update_count(sid: str, delta: int) -> None:
     if live is None:
         live = 0
     new_total = live + delta
-    print(f"[COUNT] {sid}: {live} → {new_total}")
+    # Log count changes without exposing the SID value at INFO level
+    logger.debug("[COUNT] session updated: %d → %d", live, new_total)
     if new_total <= 0:
         await _delete_session_channel(sid)
         await _delete_session_message(sid)
@@ -157,8 +176,13 @@ def unregister_receive_callback(sid: str, cb: Callable[[str], None]) -> None:
     if cb in handlers: handlers.remove(cb)
 
 async def _send_to_channel(sid: str, content: str) -> None:
-    ch_id = session_channel_ids.get(sid);
-    if not ch_id: return
+    """Send an encrypted message to the session channel.
+    Only sends to channels that are registered in session_channel_ids to
+    prevent unauthorized channel targeting.
+    """
+    ch_id = session_channel_ids.get(sid)
+    if not ch_id:
+        return
     guild = bot.guilds[0]
     ch = guild.get_channel(ch_id)
     if isinstance(ch, discord.TextChannel):
@@ -193,19 +217,25 @@ async def on_ready():
 async def on_message(msg: discord.Message):
     await bot.process_commands(msg)
     if msg.channel is None or bot.user is None: return
+    # Only process messages sent by the bot itself (our own encrypted payloads)
     if msg.author.id != bot.user.id:            return
     if not isinstance(msg.channel, discord.TextChannel): return
-    # decrypt payload
-    for sid, ch_id in session_channel_ids.items():
-        if ch_id != msg.channel.id: continue
-        pwd = crypter.session_passwords.get(sid)
-        if not pwd: continue
-        try:
-            raw   = base64.urlsafe_b64decode(msg.content.encode())
-            plain = crypter.decrypt_message(raw, pwd)
-        except Exception: continue
-        session_last_seen[sid] = datetime.now(timezone.utc)
-        for cb in receive_handlers.get(sid, []): cb(plain)
+    # Verify the channel belongs to a known, registered session before processing
+    ch_id_to_sid = {v: k for k, v in session_channel_ids.items()}
+    sid = ch_id_to_sid.get(msg.channel.id)
+    if sid is None:
+        return
+    pwd = crypter.session_passwords.get(sid)
+    if not pwd:
+        return
+    try:
+        raw   = base64.urlsafe_b64decode(msg.content.encode())
+        plain = crypter.decrypt_message(raw, pwd)
+    except Exception:
+        return
+    session_last_seen[sid] = datetime.now(timezone.utc)
+    for cb in receive_handlers.get(sid, []):
+        cb(plain)
 
 @tasks.loop(minutes=5)
 async def cleanup():
