@@ -8,6 +8,7 @@ import io
 import requests
 import time
 import random
+import urllib.parse
 
 import crypter
 from chat import (
@@ -26,6 +27,27 @@ threading.Thread(target=lambda: bot.run(BOT_TOKEN), daemon=True).start()
 root = tk.Tk(); root.title("StealthChat GUI")
 root.geometry("600x500"); root.configure(bg="#000"); root.resizable(False, False)
 FONT = ("Consolas", 12); TX_BG, TX_FG = "#000", "#0f0"
+
+# Allowlist: only fetch images hosted on i.ibb.co or ibb.co
+_ALLOWED_IMAGE_HOSTS = {"i.ibb.co", "ibb.co"}
+
+def _is_allowed_image_url(url: str) -> bool:
+    """Return True only if url is https and hosted on an allowlisted domain."""
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        if parsed.scheme != "https":
+            return False
+        host = parsed.netloc.lower()
+        # strip port if present
+        host = host.split(":")[0]
+        if host not in _ALLOWED_IMAGE_HOSTS:
+            return False
+        path = parsed.path.lower()
+        if not (path.endswith(".png") or path.endswith(".jpg") or path.endswith(".jpeg")):
+            return False
+        return True
+    except Exception:
+        return False
 
 current_session: Optional[str] = None
 _my_receive_cb: Optional[Callable[[str], None]] = None
@@ -77,7 +99,7 @@ def upload_clipboard_image() -> Optional[str]:
             "key": IMGBB_API_KEY,
             "image": b64,
             "expiration": 600
-        })
+        }, timeout=15)
 
         if resp.status_code == 200:
             return resp.json()["data"]["url"]
@@ -112,7 +134,7 @@ def upload_clipboard_image() -> Optional[str]:
             "key": IMGBB_API_KEY,
             "image": b64,
             "expiration": 600
-        })
+        }, timeout=15)
 
         if resp.status_code == 200:
             return resp.json()["data"]["url"]
@@ -146,7 +168,7 @@ def upload_clipboard_image() -> Optional[str]:
             "key": IMGBB_API_KEY,
             "image": b64,
             "expiration": 600  # delete after 10 minutes
-        })
+        }, timeout=15)
 
         if resp.status_code == 200:
             return resp.json()["data"]["url"]
@@ -312,12 +334,21 @@ def show_chat_ui():
             sender, body = msg.split(":", 1)
             put(f"< [Image] {sender}: {body.strip()}")
 
+            # Validate URL against allowlist before fetching
+            url_to_fetch = body.strip()
+            if not _is_allowed_image_url(url_to_fetch):
+                put(f"[Image blocked: URL not on allowlist]")
+                return
+
             try:
                 from PIL import Image, ImageTk
                 import urllib.request
 
-                
-                resp = urllib.request.urlopen(body.strip())
+                req = urllib.request.Request(
+                    url_to_fetch,
+                    headers={"User-Agent": "StealthChat/1.0"}
+                )
+                resp = urllib.request.urlopen(req, timeout=10)
                 img_data = resp.read()
                 img = Image.open(io.BytesIO(img_data))
 
