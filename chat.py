@@ -1,6 +1,6 @@
 # chat.py — StealthChat backend
 
-import os, asyncio, random, base64, aiohttp
+import os, asyncio, secrets, base64, aiohttp
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
@@ -39,7 +39,7 @@ async def _get_hook() -> Webhook:
 def _unique_sid(guild: discord.Guild) -> str:
     existing = {c.name for c in guild.channels}
     while True:
-        sid = f"{random.randint(0, 999_999):06d}"
+        sid = f"{secrets.randbelow(1_000_000):06d}"
         if sid not in existing and sid not in session_channel_ids:
             return sid
 
